@@ -1,4 +1,4 @@
-const CACHE = "leads-crm-v2";
+const CACHE = "leads-crm-v3";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {
@@ -20,7 +20,7 @@ self.addEventListener("fetch", e => {
 
   if (isDoc) {
     e.respondWith(
-      fetch(req).then(res => {
+      fetch(req, { cache: "no-store" }).then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
         return res;
