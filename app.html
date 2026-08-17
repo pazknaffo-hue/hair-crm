@@ -1250,8 +1250,8 @@ async function cloudSync(silent){
   syncBusy=true; syncState="syncing"; paintSync();
   try{
     if(!userEmail()) await sbFetchUser();
-    await cloudPull();
     await cloudPush();
+    await cloudPull();
     syncState="ok"; renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
     syncState="error"; if(!silent) toast(String(e.message||e).slice(0,80));
