@@ -223,7 +223,7 @@ function saveSettings(){try{localStorage.setItem("settings_v1",JSON.stringify(SE
 let PRODUCTS = SETTINGS.products, CAMPAIGNS = SETTINGS.campaigns;
 
 /* ---------- Customers / mailing model ---------- */
-const REGIONS = ["צפון","חיפה","מרכז","תל אביב","ירושלים","דרום","יהודה ושומרון","לא ידוע"];
+const REGIONS = ["צפון","חיפה","מרכז","תל אביב","שרון","ירושלים","דרום","יהודה ושומרון","לא ידוע"];
 const CITY_REGION = {
   "קרית שמונה":"צפון","נהריה":"צפון","עכו":"צפון","כרמיאל":"צפון","צפת":"צפון","טבריה":"צפון","עפולה":"צפון","נצרת":"צפון","בית שאן":"צפון","מגדל העמק":"צפון","יקנעם":"צפון","מעלות":"צפון","קצרין":"צפון",
   "חיפה":"חיפה","קרית אתא":"חיפה","קרית ביאליק":"חיפה","קרית מוצקין":"חיפה","קרית ים":"חיפה","נשר":"חיפה","טירת כרמל":"חיפה","חדרה":"חיפה","אור עקיבא":"חיפה","זכרון יעקב":"חיפה",
@@ -232,7 +232,11 @@ const CITY_REGION = {
   "נתניה":"שרון","כפר סבא":"שרון","רעננה":"שרון","הוד השרון":"שרון","הרצליה פיתוח":"שרון","קדימה":"שרון","פרדס חנה":"שרון","טירה":"שרון","טייבה":"שרון","קלנסווה":"שרון",
   "ירושלים":"ירושלים","בית שמש":"ירושלים","מבשרת ציון":"ירושלים","מעלה אדומים":"ירושלים","ביתר עילית":"ירושלים",
   "באר שבע":"דרום","אשדוד":"דרום","אשקלון":"דרום","קרית גת":"דרום","קרית מלאכי":"דרום","נתיבות":"דרום","שדרות":"דרום","אופקים":"דרום","דימונה":"דרום","ערד":"דרום","אילת":"דרום","רהט":"דרום","מיתר":"דרום","אור הנר":"דרום","שגב שלום":"דרום",
-  "אריאל":"יהודה ושומרון","מודיעין עילית":"יהודה ושומרון","קרית ארבע":"יהודה ושומרון","אפרת":"יהודה ושומרון","מעלה אדומים ":"יהודה ושומרון"
+  "אריאל":"יהודה ושומרון","מודיעין עילית":"יהודה ושומרון","קרית ארבע":"יהודה ושומרון","אפרת":"יהודה ושומרון","מעלה אדומים ":"יהודה ושומרון",
+  "סחנין":"צפון","סח'נין":"צפון","טמרה":"צפון","שפרעם":"צפון","עראבה":"צפון","דיר אלאסד":"צפון","מג'אר":"צפון","ריינה":"צפון","כפר כנא":"צפון","יפיע":"צפון","בועיינה-נוג'ידאת":"צפון","ג'דיידה מכר":"צפון","נוף הגליל":"צפון","חצור הגלילית":"צפון","ראש פינה":"צפון","קרית טבעון":"חיפה","אום אל פחם":"חיפה","בנימינה":"חיפה",
+  "כפר יונה":"שרון","אבן יהודה":"שרון","תל מונד":"שרון","באקה אל גרבייה":"שרון",
+  "גבעת שמואל":"תל אביב","אזור":"תל אביב","כפר קאסם":"מרכז","ג'לג'וליה":"מרכז",
+  "עומר":"דרום","להבים":"דרום"
 };
 function normCity(s){return (s||"").replace(/[‎‏]/g,"").replace(/["'`]/g,"").replace(/\s+/g," ").trim();}
 function cityToRegion(city){const c=normCity(city);if(!c)return "לא ידוע";if(CITY_REGION[c])return CITY_REGION[c];
@@ -777,7 +781,8 @@ function openCustomer(id){
       ${!isNew?quickSendSection(c):""}
       <div class="lbl-s">שם</div><input type="text" id="cName" value="${esc(c.name)}" placeholder="שם מלא">
       <div class="lbl-s">טלפון</div><input type="tel" id="cPhone" value="${esc(c.phoneRaw||"")}" placeholder="050-0000000" style="direction:ltr;text-align:right">
-      <div class="lbl-s">עיר / יישוב</div><input type="text" id="cCity" value="${esc(c.city||"")}" placeholder="עיר">
+      <div class="lbl-s">עיר / יישוב</div><input type="text" id="cCity" value="${esc(c.city||"")}" placeholder="עיר" oninput="cCityChanged()">
+      <div class="lbl-s">אזור</div><select id="cRegion" style="${SEL}">${REGIONS.map(r=>`<option ${r===(c.region||cityToRegion(c.city))?"selected":""}>${r}</option>`).join("")}</select>
       <div class="lbl-s">מוצר אחרון</div>
       <select id="cProduct" style="${SEL}"><option value="">—</option>${PRODUCTS.map(p=>`<option ${p===c.product?"selected":""}>${p}</option>`).join("")}</select>
       <div class="lbl-s">סטטוס לקוח</div>
@@ -799,6 +804,7 @@ window.openCustomer=openCustomer;
 window.pickConsent=(k)=>{window._consent=k;Object.keys(CONSENT).forEach(x=>{const el=document.getElementById("cs_"+x);const v=CONSENT[x];el.style.cssText=x===k?`background:${v.bg};color:${v.color};border-color:${v.color}`:"";});};
 window.pickCustStatus=(k)=>{window._custStatus=k;CUSTOMER_STATUSES.forEach(s=>{const el=document.getElementById("cst_"+s.id);if(el)el.style.cssText=s.id===k?`background:${s.bg};color:${s.color};border-color:${s.color}`:"";});};
 window.pickOrigin=(k)=>{window._origin=k;CUSTOMER_ORIGIN.forEach(o=>{const el=document.getElementById("co_"+o.id);if(el)el.style.cssText=o.id===k?`background:var(--brand-bg);color:var(--brand);border-color:var(--brand)`:"";});};
+window.cCityChanged=()=>{const sel=document.getElementById("cRegion");if(sel)sel.value=cityToRegion(document.getElementById("cCity").value);};
 window.quickSend=(id,tid)=>{
   const c=getCustomer(id); const t=TEMPLATES.find(x=>x.id===tid); if(!c||!t)return;
   const msg=fullMessage(t.body,c);
@@ -824,8 +830,9 @@ window.saveCustomer=(id)=>{
   const phone=document.getElementById("cPhone").value.trim();
   if(!name){toast("צריך שם");return;}
   const n=normIL(phone); const city=normCity(document.getElementById("cCity").value);
+  const region=document.getElementById("cRegion").value||cityToRegion(city);
   const optOut=document.getElementById("cOptOut").checked;
-  const fields={name,phoneRaw:phone,phoneE164:n.e164,phoneValid:n.valid,phoneMobile:n.mobile,city,region:cityToRegion(city),
+  const fields={name,phoneRaw:phone,phoneE164:n.e164,phoneValid:n.valid,phoneMobile:n.mobile,city,region,
     product:document.getElementById("cProduct").value,consentStatus:window._consent||"customer",status:window._custStatus||"new",
     origin:window._origin||"existing",optOut};
   if(id){const ex=getCustomer(id); if(optOut&&!ex.optOut)fields.optOutAt=todayISO(); Object.assign(ex,fields);}
