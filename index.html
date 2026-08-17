@@ -130,9 +130,13 @@
   /* detail / modal */
   .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;display:none;align-items:flex-end;justify-content:center}
   .sheet-bg.open{display:flex;animation:fade .15s ease}
+  .sheet-bg.closing{animation:fadeOut .18s ease forwards}
+  .sheet-bg.closing .sheet{animation:down .18s ease forwards}
   .sheet{background:var(--bg);width:100%;max-width:480px;max-height:92vh;border-radius:20px 20px 0 0;
     overflow-y:auto;padding:0 0 30px;animation:up .22s ease}
   @keyframes up{from{transform:translateY(30px)}to{transform:none}}
+  @keyframes down{from{transform:none}to{transform:translateY(30px)}}
+  @keyframes fadeOut{from{opacity:1}to{opacity:0}}
   .sheet-top{position:sticky;top:0;background:var(--card);border-bottom:.5px solid var(--line);
     padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-radius:20px 20px 0 0}
   .sheet-top .x{border:none;background:none;font-size:24px;color:var(--muted);cursor:pointer;line-height:1}
@@ -596,7 +600,12 @@ if(loggedIn()){syncState="ok";paintSync();cloudSync(true);}else{paintSync();}
   if(document.getElementById("sheetBg").classList.contains("open")) openLead(id);
   toast("הקטלוג נפתח בוואטסאפ");
 };
-window.closeSheet=()=>document.getElementById("sheetBg").classList.remove("open");
+window.closeSheet=()=>{
+  const bg=document.getElementById("sheetBg");
+  if(!bg.classList.contains("open"))return;
+  bg.classList.add("closing");
+  setTimeout(()=>{bg.classList.remove("open");bg.classList.remove("closing");},180);
+};
 document.getElementById("sheetBg").addEventListener("click",e=>{if(e.target.id==="sheetBg")closeSheet();});
 
 window.setStatus=(id,st)=>{const l=getLead(id);l.status=st;if(st==="won"||st==="lost")l.reminderAt="";save();openLead(id);renderAll();toast("הסטטוס עודכן");};
