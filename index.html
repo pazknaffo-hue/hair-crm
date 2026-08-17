@@ -172,6 +172,7 @@
       <div class="h-sub" id="hSub">מוצרי שיער</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="icon-btn" id="cloudBtn" aria-label="ענן" style="background:var(--card2);color:var(--muted)">☁️</button>
       <button class="icon-btn" id="setBtn" aria-label="הגדרות" style="background:var(--card2);color:var(--muted)">⚙️</button>
       <button class="icon-btn" id="bellBtn" aria-label="התראות">🔔</button>
     </div>
@@ -218,7 +219,7 @@ let SETTINGS = {products:[...DEFAULT_PRODUCTS], campaigns:[...DEFAULT_CAMPAIGNS]
 try{const rs=localStorage.getItem("settings_v1");if(rs)SETTINGS=Object.assign(SETTINGS,JSON.parse(rs));}catch(e){}
 if(!SETTINGS.mailing) SETTINGS.mailing={dailyCap:30, cooldownDays:30, spacingSec:40};
 if(!SETTINGS.catalog) SETTINGS.catalog={intro:"היי {name} 🙂 הנה קטלוג המוצרים שלנו:", link:""};
-function saveSettings(){try{localStorage.setItem("settings_v1",JSON.stringify(SETTINGS));}catch(e){}}
+function saveSettings(){try{localStorage.setItem("settings_v1",JSON.stringify(SETTINGS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 let PRODUCTS = SETTINGS.products, CAMPAIGNS = SETTINGS.campaigns;
 
 /* ---------- Customers / mailing model ---------- */
@@ -278,7 +279,7 @@ const ORIGIN = Object.fromEntries(CUSTOMER_ORIGIN.map(o=>[o.id,o]));
 function custOrigin(c){return ORIGIN[c.origin]||ORIGIN.existing;}
 
 let CUSTOMERS=[]; try{const rc=localStorage.getItem("customers_v1"); CUSTOMERS = rc?JSON.parse(rc):seedCustomers();}catch(e){CUSTOMERS=seedCustomers();}
-function saveCustomers(){try{localStorage.setItem("customers_v1",JSON.stringify(CUSTOMERS));}catch(e){}}
+function saveCustomers(){try{localStorage.setItem("customers_v1",JSON.stringify(CUSTOMERS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 function getCustomer(id){return CUSTOMERS.find(c=>c.id===id);}
 function cuid(){return "c"+Math.random().toString(36).slice(2,9);}
 
@@ -315,11 +316,11 @@ function defaultTemplates(){return [
   {id:"t6", name:"חברה מביאה חברה", body:"{name}, אם תפני אליי חברה — שתיכן מקבלות הטבה 🎁 מכירה מישהי שתשמח?"},
 ];}
 let TEMPLATES=[]; try{const rt=localStorage.getItem("templates_v1"); TEMPLATES = rt?JSON.parse(rt):defaultTemplates();}catch(e){TEMPLATES=defaultTemplates();}
-function saveTemplates(){try{localStorage.setItem("templates_v1",JSON.stringify(TEMPLATES));}catch(e){}}
+function saveTemplates(){try{localStorage.setItem("templates_v1",JSON.stringify(TEMPLATES));}catch(e){}if(typeof queueSync==="function")queueSync();}
 
 /* blasts (mailing runs) */
 let BLASTS=[]; try{const rb=localStorage.getItem("blasts_v1"); BLASTS = rb?JSON.parse(rb):[];}catch(e){BLASTS=[];}
-function saveBlasts(){try{localStorage.setItem("blasts_v1",JSON.stringify(BLASTS));}catch(e){}}
+function saveBlasts(){try{localStorage.setItem("blasts_v1",JSON.stringify(BLASTS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 
 function bizName(){return SETTINGS.businessName || "העסק";}
 function firstName(n){return (n||"").trim().split(/\s+/)[0]||"";}
@@ -364,7 +365,7 @@ function seed(){
 
 let LEADS=[];
 try{const raw=localStorage.getItem("leads_v1");LEADS=raw?JSON.parse(raw):seed();}catch(e){LEADS=seed();}
-function save(){try{localStorage.setItem("leads_v1",JSON.stringify(LEADS));}catch(e){}}
+function save(){try{localStorage.setItem("leads_v1",JSON.stringify(LEADS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 function getLead(id){return LEADS.find(l=>l.id===id);}
 
 /* ---------- Helpers ---------- */
@@ -585,6 +586,7 @@ window.sendCatalogToLead=(id)=>{
   l.notes=l.notes||[]; l.notes.push({d:todayISO(),t:"נשלח קטלוג מוצרים"});
   if(l.status==="new") l.status="contact";
   save(); renderAll();
+if(loggedIn()){syncState="ok";paintSync();cloudSync(true);}else{paintSync();}
   if(document.getElementById("sheetBg").classList.contains("open")) openLead(id);
   toast("הקטלוג נפתח בוואטסאפ");
 };
@@ -649,7 +651,7 @@ window.saveLead=(id)=>{
     save();closeSheet();}
   renderAll();toast("נשמר");
 };
-window.delLead=(id)=>{if(!confirm("למחוק את הליד?"))return;LEADS=LEADS.filter(l=>l.id!==id);save();closeSheet();renderAll();toast("הליד נמחק");};
+window.delLead=(id)=>{if(!confirm("למחוק את הליד?"))return;LEADS=LEADS.filter(l=>l.id!==id);save();cloudDelete("leads",id);closeSheet();renderAll();toast("הליד נמחק");};
 
 /* ================= Customers screen ================= */
 let custFilter="all", custStatusFilter="all", custQuery="";
@@ -830,7 +832,7 @@ window.saveCustomer=(id)=>{
   else{CUSTOMERS.push(Object.assign({id:cuid(),tags:[],leadId:"",createdAt:todayISO(),lastContactAt:"",lastMailedAt:"",optOutAt:optOut?todayISO():"",notes:[]},fields));}
   saveCustomers(); renderAll(); closeSheet(); toast("נשמר");
 };
-window.delCustomer=(id)=>{if(!confirm("למחוק את הלקוח?"))return;CUSTOMERS=CUSTOMERS.filter(c=>c.id!==id);saveCustomers();renderAll();closeSheet();toast("נמחק");};
+window.delCustomer=(id)=>{if(!confirm("למחוק את הלקוח?"))return;CUSTOMERS=CUSTOMERS.filter(c=>c.id!==id);saveCustomers();cloudDelete("customers",id);renderAll();closeSheet();toast("נמחק");};
 
 /* ================= CSV import wizard ================= */
 const SEL="width:100%;border:.5px solid var(--line);background:var(--card);color:var(--text);border-radius:11px;padding:11px;font-size:15px;font-family:inherit";
@@ -1091,6 +1093,191 @@ window.blastSkip=()=>{const b=currentBlast();const idx=nextPending(b);if(idx<0)r
 window.blastOptOut=(id)=>{const c=getCustomer(id);c.optOut=true;c.optOutAt=todayISO();const b=currentBlast();const idx=nextPending(b);if(idx>=0)b.recipients[idx].status="removed";saveCustomers();saveBlasts();renderBlastSheet();renderCustomers();renderMailing();};
 window.blastOverride=()=>{const b=currentBlast();b.capBonus=(b.capBonus||0)+SETTINGS.mailing.dailyCap;saveBlasts();renderBlastSheet();};
 
+/* ================= Cloud sync (Supabase) ================= */
+const SB_URL="https://zkvncwzezhqtshilljsu.supabase.co";
+const SB_KEY="sb_publishable_kCmQZz3rJ0i061bmDp5ymw_WoO5LGgV";
+let SB_SESSION=null;
+try{const s=localStorage.getItem("sb_session_v1");if(s)SB_SESSION=JSON.parse(s);}catch(e){}
+function sbSave(s){SB_SESSION=s;try{s?localStorage.setItem("sb_session_v1",JSON.stringify(s)):localStorage.removeItem("sb_session_v1");}catch(e){}}
+function loggedIn(){return !!(SB_SESSION&&SB_SESSION.access_token);}
+function userEmail(){return (SB_SESSION&&SB_SESSION.user&&SB_SESSION.user.email)||"";}
+let syncState="off", syncBusy=false;
+
+/* capture magic-link tokens returned in the URL hash */
+(function(){
+  const h=location.hash||"";
+  if(h.indexOf("access_token=")>-1){
+    const p={};
+    h.replace(/^#/,"").split("&").forEach(kv=>{const i=kv.indexOf("=");if(i>0)p[decodeURIComponent(kv.slice(0,i))]=decodeURIComponent(kv.slice(i+1));});
+    if(p.access_token) sbSave({access_token:p.access_token,refresh_token:p.refresh_token||"",user:{email:""}});
+    try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}
+  }
+})();
+
+async function sbAuth(path,body){
+  const r=await fetch(SB_URL+"/auth/v1/"+path,{method:"POST",headers:{"apikey":SB_KEY,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error_description||j.msg||j.message||("שגיאה "+r.status));
+  return j;
+}
+async function sbSendLink(email){
+  return sbAuth("otp",{email,create_user:true,options:{email_redirect_to:location.origin+location.pathname}});
+}
+async function sbRefresh(){
+  if(!SB_SESSION||!SB_SESSION.refresh_token) return false;
+  try{const j=await sbAuth("token?grant_type=refresh_token",{refresh_token:SB_SESSION.refresh_token});sbSave(j);return true;}
+  catch(e){sbSave(null);return false;}
+}
+async function sbFetchUser(){
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/user",{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_SESSION.access_token}});
+    if(!r.ok) return false;
+    const u=await r.json();
+    sbSave(Object.assign({},SB_SESSION,{user:u}));
+    return true;
+  }catch(e){return false;}
+}
+async function sbRest(path,opts,retried){
+  opts=opts||{};
+  const headers=Object.assign({"apikey":SB_KEY,"Content-Type":"application/json",
+    "Authorization":"Bearer "+(SB_SESSION?SB_SESSION.access_token:SB_KEY)},opts.headers||{});
+  const r=await fetch(SB_URL+"/rest/v1/"+path,Object.assign({},opts,{headers}));
+  if(r.status===401&&!retried){ if(await sbRefresh()) return sbRest(path,opts,true); }
+  if(!r.ok){const t=await r.text().catch(()=>"");throw new Error("ענן "+r.status+": "+t.slice(0,140));}
+  if(r.status===204) return null;
+  const txt=await r.text(); return txt?JSON.parse(txt):null;
+}
+
+/* table <-> local-object mappers */
+const SYNC_TABLES=[
+  {key:"leads", table:"leads", get:()=>LEADS, set:v=>{LEADS=v;save();},
+    to:l=>({id:l.id,name:l.name||"",phone:l.phone||"",email:l.email||"",status:l.status||"new",
+      campaign:l.campaign||"",source:l.source||"",product:l.product||"",
+      created_at:l.createdAt||todayISO(),reminder_at:l.reminderAt||null,notes:l.notes||[]}),
+    from:r=>({id:r.id,name:r.name,phone:r.phone,email:r.email||"",status:r.status,campaign:r.campaign||"",
+      source:r.source||"",product:r.product||"",createdAt:r.created_at,reminderAt:r.reminder_at||"",notes:r.notes||[]})},
+  {key:"customers", table:"customers", get:()=>CUSTOMERS, set:v=>{CUSTOMERS=v;saveCustomers();},
+    to:c=>({id:c.id,name:c.name||"",phone_raw:c.phoneRaw||"",phone_e164:c.phoneE164||"",
+      phone_valid:!!c.phoneValid,phone_mobile:!!c.phoneMobile,city:c.city||"",region:c.region||"לא ידוע",
+      consent_status:c.consentStatus||"unknown",status:c.status||"new",origin:c.origin||"existing",
+      lead_id:(c.leadId&&LEADS.some(l=>l.id===c.leadId))?c.leadId:null,
+      opt_out:!!c.optOut,opt_out_at:c.optOutAt||null,product:c.product||"",tags:c.tags||[],
+      created_at:c.createdAt||todayISO(),last_contact_at:c.lastContactAt||null,
+      last_mailed_at:c.lastMailedAt||null,notes:c.notes||[]}),
+    from:r=>({id:r.id,name:r.name,phoneRaw:r.phone_raw||"",phoneE164:r.phone_e164||"",
+      phoneValid:!!r.phone_valid,phoneMobile:!!r.phone_mobile,city:r.city||"",region:r.region||"לא ידוע",
+      consentStatus:r.consent_status,status:r.status,origin:r.origin||"existing",leadId:r.lead_id||"",
+      optOut:!!r.opt_out,optOutAt:r.opt_out_at||"",product:r.product||"",tags:r.tags||[],
+      createdAt:r.created_at,lastContactAt:r.last_contact_at||"",lastMailedAt:r.last_mailed_at||"",notes:r.notes||[]})},
+  {key:"templates", table:"templates", get:()=>TEMPLATES, set:v=>{TEMPLATES=v;saveTemplates();},
+    to:t=>({id:t.id,name:t.name||"",body:t.body||""}),
+    from:r=>({id:r.id,name:r.name,body:r.body})},
+  {key:"blasts", table:"blasts", get:()=>BLASTS, set:v=>{BLASTS=v;saveBlasts();},
+    to:b=>({id:b.id,date:b.date||todayISO(),regions:b.regions||[],bucket:b.bucket||"all",
+      template_id:b.templateId||null,template_name:b.templateName||"",template_snapshot:b.templateSnapshot||"",
+      channel:b.channel||"wa-manual",recipients:b.recipients||[],sent_count:b.sentCount||0,
+      skip_count:b.skipCount||0,sent_today:b.sentToday||0,sent_date:b.sentDate||null,cap_bonus:b.capBonus||0}),
+    from:r=>({id:r.id,date:r.date,regions:r.regions||[],bucket:r.bucket,templateId:r.template_id||"",
+      templateName:r.template_name||"",templateSnapshot:r.template_snapshot||"",channel:r.channel||"wa-manual",
+      recipients:r.recipients||[],sentCount:r.sent_count||0,skipCount:r.skip_count||0,
+      sentToday:r.sent_today||0,sentDate:r.sent_date||"",capBonus:r.cap_bonus||0})},
+];
+
+async function cloudPull(){
+  for(const t of SYNC_TABLES){
+    const rows=await sbRest(t.table+"?select=*");
+    const byId={};
+    t.get().forEach(x=>{byId[x.id]=x;});          // local first
+    (rows||[]).map(t.from).forEach(x=>{byId[x.id]=x;}); // cloud wins on conflict
+    t.set(Object.values(byId));
+  }
+  const st=await sbRest("app_settings?id=eq.1&select=*");
+  if(st&&st[0]){
+    const s=st[0];
+    if(s.business_name) SETTINGS.businessName=s.business_name;
+    if(s.products&&s.products.length){SETTINGS.products=s.products;PRODUCTS=SETTINGS.products;}
+    if(s.campaigns&&s.campaigns.length){SETTINGS.campaigns=s.campaigns;CAMPAIGNS=SETTINGS.campaigns;}
+    if(s.mailing) SETTINGS.mailing=s.mailing;
+    if(s.catalog) SETTINGS.catalog=s.catalog;
+    saveSettings();
+  }
+}
+async function cloudPush(){
+  for(const t of SYNC_TABLES){
+    const rows=t.get().map(t.to);
+    for(let i=0;i<rows.length;i+=200){
+      await sbRest(t.table,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
+        body:JSON.stringify(rows.slice(i,i+200))});
+    }
+  }
+  await sbRest("app_settings",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
+    body:JSON.stringify([{id:1,business_name:SETTINGS.businessName||"",products:PRODUCTS,campaigns:CAMPAIGNS,
+      mailing:SETTINGS.mailing,catalog:SETTINGS.catalog}])});
+}
+async function cloudDelete(table,id){
+  if(!loggedIn()) return;
+  try{ await sbRest(table+"?id=eq."+encodeURIComponent(id),{method:"DELETE"}); }catch(e){}
+}
+async function cloudSync(silent){
+  if(!loggedIn()||syncBusy) return;
+  syncBusy=true; syncState="syncing"; paintSync();
+  try{
+    if(!userEmail()) await sbFetchUser();
+    await cloudPull();
+    await cloudPush();
+    syncState="ok"; renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
+  }catch(e){
+    syncState="error"; if(!silent) toast(String(e.message||e).slice(0,80));
+  }
+  syncBusy=false; paintSync();
+}
+let pushTimer=null;
+function queueSync(){ if(!loggedIn())return; clearTimeout(pushTimer); pushTimer=setTimeout(()=>cloudSync(true),2500); }
+function paintSync(){
+  const b=document.getElementById("cloudBtn"); if(!b)return;
+  const icons={off:"☁️",syncing:"🔄",ok:"✅",error:"⚠️"};
+  b.textContent=icons[syncState]||"☁️";
+  b.style.background=syncState==="error"?"var(--new-bg)":(syncState==="ok"?"var(--won-bg)":"var(--card2)");
+  b.style.color=syncState==="error"?"var(--new)":(syncState==="ok"?"var(--won)":"var(--muted)");
+}
+function openCloud(){
+  const inner = loggedIn()
+    ? `<div style="text-align:center;padding:10px 0">
+         <div style="font-size:34px">☁️</div>
+         <div style="font-size:16px;font-weight:600;margin-top:6px">מחובר לענן</div>
+         <div style="font-size:13px;color:var(--muted);margin-top:4px">${esc(userEmail()||"מחובר")}</div>
+       </div>
+       <div style="background:var(--card);border:.5px solid var(--line);border-radius:12px;padding:12px;margin-top:8px;font-size:13.5px">
+         <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span>לידים</span><b>${LEADS.length}</b></div>
+         <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span>לקוחות</span><b>${CUSTOMERS.length}</b></div>
+         <div style="display:flex;justify-content:space-between"><span>תבניות</span><b>${TEMPLATES.length}</b></div>
+       </div>
+       <button class="btn btn-primary" style="margin-top:14px" onclick="cloudSync()">🔄 סנכרן עכשיו</button>
+       <button class="btn btn-ghost" style="margin-top:10px" onclick="cloudLogout()">התנתק מהמכשיר הזה</button>
+       <div style="font-size:12px;color:var(--faint);margin-top:14px;text-align:center">הנתונים מסונכרנים אוטומטית בין כל המכשירים המחוברים</div>`
+    : `<div style="text-align:center;padding:6px 0 12px">
+         <div style="font-size:34px">☁️</div>
+         <div style="font-size:16px;font-weight:600;margin-top:6px">סנכרון בין מכשירים</div>
+         <div style="font-size:13px;color:var(--muted);margin-top:4px">התחברו כדי שהנתונים יהיו זהים אצלך ואצל השותף</div>
+       </div>
+       <div class="lbl-s">כתובת אימייל</div>
+       <input type="email" id="cloudEmail" placeholder="name@mail.com" style="direction:ltr;text-align:right">
+       <button class="btn btn-primary" style="margin-top:12px" onclick="cloudLogin()">שלח לי קישור כניסה</button>
+       <div style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.7">יישלח אליך מייל עם קישור. פותחים אותו <b>מאותו מכשיר</b> — וזהו, מחוברים. אין סיסמה לזכור.</div>`;
+  document.getElementById("sheet").innerHTML=
+    `<div class="sheet-top"><div style="font-weight:600;font-size:16px">ענן וסנכרון</div><button class="x" onclick="closeSheet()">✕</button></div><div class="d-pad">${inner}</div>`;
+  document.getElementById("sheetBg").classList.add("open");
+}
+window.openCloud=openCloud;
+window.cloudSync=cloudSync;
+window.cloudLogin=async()=>{
+  const em=(document.getElementById("cloudEmail").value||"").trim();
+  if(!em||em.indexOf("@")<0){toast("צריך אימייל תקין");return;}
+  try{ await sbSendLink(em); toast("נשלח מייל — פתחו את הקישור"); closeSheet(); }
+  catch(e){ toast(String(e.message||e).slice(0,80)); }
+};
+window.cloudLogout=()=>{ sbSave(null); syncState="off"; paintSync(); closeSheet(); toast("נותקת מהענן"); };
+
 /* ---------- Nav & init ---------- */
 const TITLES={leads:["לידים","מוצרי שיער"],pipeline:["Pipeline","מעקב לפי שלבים"],
   customers:["לקוחות","המאגר הארצי"],mailing:["דיוור","שליחה מפולחת בוואטסאפ"],reports:["דוחות","סיכום ונתונים"]};
@@ -1110,6 +1297,7 @@ document.querySelectorAll(".nav-b").forEach(b=>b.onclick=()=>go(b.dataset.go));
 document.getElementById("fab").onclick=()=>{ if(currentScreen==="customers") openCustomer(null); else editLead(null); };
 document.getElementById("bellBtn").onclick=()=>{go("leads");toast(LEADS.filter(needsToday).length+" לידים לטיפול היום");};
 document.getElementById("setBtn").onclick=()=>openSettings();
+document.getElementById("cloudBtn").onclick=()=>openCloud();
 
 /* ---------- Settings & backup ---------- */
 function openSettings(){
