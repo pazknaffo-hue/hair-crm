@@ -214,16 +214,18 @@ const ST = Object.fromEntries(STATUSES.map(s=>[s.id,s]));
 
 const DEFAULT_PRODUCTS = ["צמידי שיער — שיטת הנוצה (צבוע)","צמידי שיער — שיטת הנוצה (בתולי פרימיום)","צמידי שיער — שיטת החרוז הנסתר","שיער בקראטין","יחידות שיער","שיער גזור בתולי","מוצרי החלקת מגסטיק","מוצרים נלווים"];
 const DEFAULT_CAMPAIGNS = ["קמפיין קיץ 2026","קרנו אינסטגרם","רימרקטינג","מודעת סטורי"];
-let SETTINGS = {products:[...DEFAULT_PRODUCTS], campaigns:[...DEFAULT_CAMPAIGNS],
+const DEFAULT_REGIONS = ["צפון","חיפה","מרכז","תל אביב","שרון","ירושלים","דרום","יהודה ושומרון","לא ידוע"];
+let SETTINGS = {products:[...DEFAULT_PRODUCTS], campaigns:[...DEFAULT_CAMPAIGNS], regions:[...DEFAULT_REGIONS],
   businessName:"", mailing:{dailyCap:30, cooldownDays:30, spacingSec:40}};
 try{const rs=localStorage.getItem("settings_v1");if(rs)SETTINGS=Object.assign(SETTINGS,JSON.parse(rs));}catch(e){}
 if(!SETTINGS.mailing) SETTINGS.mailing={dailyCap:30, cooldownDays:30, spacingSec:40};
 if(!SETTINGS.catalog) SETTINGS.catalog={intro:"היי {name} 🙂 הנה קטלוג המוצרים שלנו:", link:""};
+if(!SETTINGS.regions||!SETTINGS.regions.length) SETTINGS.regions=[...DEFAULT_REGIONS];
 function saveSettings(){try{localStorage.setItem("settings_v1",JSON.stringify(SETTINGS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 let PRODUCTS = SETTINGS.products, CAMPAIGNS = SETTINGS.campaigns;
 
 /* ---------- Customers / mailing model ---------- */
-const REGIONS = ["צפון","חיפה","מרכז","תל אביב","שרון","ירושלים","דרום","יהודה ושומרון","לא ידוע"];
+let REGIONS = SETTINGS.regions;
 const CITY_REGION = {
   "קרית שמונה":"צפון","נהריה":"צפון","עכו":"צפון","כרמיאל":"צפון","צפת":"צפון","טבריה":"צפון","עפולה":"צפון","נצרת":"צפון","בית שאן":"צפון","מגדל העמק":"צפון","יקנעם":"צפון","מעלות":"צפון","קצרין":"צפון",
   "חיפה":"חיפה","קרית אתא":"חיפה","קרית ביאליק":"חיפה","קרית מוצקין":"חיפה","קרית ים":"חיפה","נשר":"חיפה","טירת כרמל":"חיפה","חדרה":"חיפה","אור עקיבא":"חיפה","זכרון יעקב":"חיפה",
@@ -773,6 +775,8 @@ function openCustomer(id){
       <a class="cbtn" style="background:var(--contact-bg);color:var(--contact)" href="tel:${esc(c.phoneRaw)}"><span class="ci">📞</span>חיוג</a>
     </div>`:"";
   const originNote=(!isNew&&c.leadId)?`<div style="font-size:12px;color:var(--muted);margin-top:6px">🎯 הומר מליד קיים במערכת</div>`:"";
+  const curRegion=c.region||cityToRegion(c.city||"");
+  const regionOpts=REGIONS.includes(curRegion)?REGIONS:[curRegion,...REGIONS];
   document.getElementById("sheet").innerHTML=`
     <div class="sheet-top"><div style="font-weight:600;font-size:16px">${isNew?"לקוח חדש":"כרטיס לקוח"}</div><button class="x" onclick="closeSheet()">✕</button></div>
     <div class="d-pad">
@@ -782,7 +786,7 @@ function openCustomer(id){
       <div class="lbl-s">שם</div><input type="text" id="cName" value="${esc(c.name)}" placeholder="שם מלא">
       <div class="lbl-s">טלפון</div><input type="tel" id="cPhone" value="${esc(c.phoneRaw||"")}" placeholder="050-0000000" style="direction:ltr;text-align:right">
       <div class="lbl-s">עיר / יישוב</div><input type="text" id="cCity" value="${esc(c.city||"")}" placeholder="עיר" oninput="cCityChanged()">
-      <div class="lbl-s">אזור</div><select id="cRegion" style="${SEL}">${REGIONS.map(r=>`<option ${r===(c.region||cityToRegion(c.city))?"selected":""}>${r}</option>`).join("")}</select>
+      <div class="lbl-s">אזור</div><select id="cRegion" style="${SEL}">${regionOpts.map(r=>`<option ${r===curRegion?"selected":""}>${r}</option>`).join("")}</select>
       <div class="lbl-s">מוצר אחרון</div>
       <select id="cProduct" style="${SEL}"><option value="">—</option>${PRODUCTS.map(p=>`<option ${p===c.product?"selected":""}>${p}</option>`).join("")}</select>
       <div class="lbl-s">סטטוס לקוח</div>
@@ -804,7 +808,7 @@ window.openCustomer=openCustomer;
 window.pickConsent=(k)=>{window._consent=k;Object.keys(CONSENT).forEach(x=>{const el=document.getElementById("cs_"+x);const v=CONSENT[x];el.style.cssText=x===k?`background:${v.bg};color:${v.color};border-color:${v.color}`:"";});};
 window.pickCustStatus=(k)=>{window._custStatus=k;CUSTOMER_STATUSES.forEach(s=>{const el=document.getElementById("cst_"+s.id);if(el)el.style.cssText=s.id===k?`background:${s.bg};color:${s.color};border-color:${s.color}`:"";});};
 window.pickOrigin=(k)=>{window._origin=k;CUSTOMER_ORIGIN.forEach(o=>{const el=document.getElementById("co_"+o.id);if(el)el.style.cssText=o.id===k?`background:var(--brand-bg);color:var(--brand);border-color:var(--brand)`:"";});};
-window.cCityChanged=()=>{const sel=document.getElementById("cRegion");if(sel)sel.value=cityToRegion(document.getElementById("cCity").value);};
+window.cCityChanged=()=>{const sel=document.getElementById("cRegion");if(!sel)return;const sug=cityToRegion(document.getElementById("cCity").value);if([...sel.options].some(o=>o.value===sug))sel.value=sug;};
 window.quickSend=(id,tid)=>{
   const c=getCustomer(id); const t=TEMPLATES.find(x=>x.id===tid); if(!c||!t)return;
   const msg=fullMessage(t.body,c);
@@ -1210,6 +1214,7 @@ async function cloudPull(){
     if(s.business_name) SETTINGS.businessName=s.business_name;
     if(s.products&&s.products.length){SETTINGS.products=s.products;PRODUCTS=SETTINGS.products;}
     if(s.campaigns&&s.campaigns.length){SETTINGS.campaigns=s.campaigns;CAMPAIGNS=SETTINGS.campaigns;}
+    if(s.regions&&s.regions.length){SETTINGS.regions=s.regions;REGIONS=SETTINGS.regions;}
     if(s.mailing) SETTINGS.mailing=s.mailing;
     if(s.catalog) SETTINGS.catalog=s.catalog;
     saveSettings();
@@ -1224,7 +1229,7 @@ async function cloudPush(){
     }
   }
   await sbRest("app_settings",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
-    body:JSON.stringify([{id:1,business_name:SETTINGS.businessName||"",products:PRODUCTS,campaigns:CAMPAIGNS,
+    body:JSON.stringify([{id:1,business_name:SETTINGS.businessName||"",products:PRODUCTS,campaigns:CAMPAIGNS,regions:REGIONS,
       mailing:SETTINGS.mailing,catalog:SETTINGS.catalog}])});
 }
 async function cloudDelete(table,id){
@@ -1341,6 +1346,9 @@ function openSettings(){
       <textarea class="note-input" id="setProducts" style="min-height:110px">${esc(PRODUCTS.join("\n"))}</textarea>
       <div class="lbl-s">רשימת קמפיינים (שורה לכל קמפיין)</div>
       <textarea class="note-input" id="setCampaigns" style="min-height:90px">${esc(CAMPAIGNS.join("\n"))}</textarea>
+      <div class="lbl-s">רשימת אזורים (שורה לכל אזור — כך תרצה לחלק את הלקוחות שלך)</div>
+      <textarea class="note-input" id="setRegions" style="min-height:110px">${esc(REGIONS.join("\n"))}</textarea>
+      <div style="font-size:12px;color:var(--muted);margin-top:-4px;margin-bottom:4px">אפשר לכתוב כל שם שתרצה (למשל אזורים לפי איש צוות, לפי שכונות משלכם וכו'). בכרטיס לקוח תבחרו אזור מהרשימה הזו.</div>
       <div class="row-g" style="margin-top:14px">
         <button class="btn btn-primary" onclick="applySettings()">שמור רשימות</button>
       </div>
@@ -1364,8 +1372,9 @@ function openSettings(){
 window.applySettings=()=>{
   const p=document.getElementById("setProducts").value.split("\n").map(s=>s.trim()).filter(Boolean);
   const c=document.getElementById("setCampaigns").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  if(p.length)SETTINGS.products=p; if(c.length)SETTINGS.campaigns=c;
-  PRODUCTS=SETTINGS.products; CAMPAIGNS=SETTINGS.campaigns;
+  const r=document.getElementById("setRegions").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(p.length)SETTINGS.products=p; if(c.length)SETTINGS.campaigns=c; if(r.length)SETTINGS.regions=r;
+  PRODUCTS=SETTINGS.products; CAMPAIGNS=SETTINGS.campaigns; REGIONS=SETTINGS.regions;
   saveSettings(); renderAll(); toast("הרשימות נשמרו");
 };
 window.exportData=()=>{
