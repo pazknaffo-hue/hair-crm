@@ -1120,8 +1120,14 @@ async function sbAuth(path,body){
   if(!r.ok) throw new Error(j.error_description||j.msg||j.message||("שגיאה "+r.status));
   return j;
 }
-async function sbSendLink(email){
-  return sbAuth("otp",{email,create_user:true,options:{email_redirect_to:location.origin+location.pathname}});
+async function sbSignIn(email,password){
+  const j=await sbAuth("token?grant_type=password",{email,password});
+  sbSave(j); return j;
+}
+async function sbSignUp(email,password){
+  const j=await sbAuth("signup",{email,password});
+  if(j.access_token){ sbSave(j); return j; }
+  return sbSignIn(email,password);
 }
 async function sbRefresh(){
   if(!SB_SESSION||!SB_SESSION.refresh_token) return false;
@@ -1262,8 +1268,10 @@ function openCloud(){
        </div>
        <div class="lbl-s">כתובת אימייל</div>
        <input type="email" id="cloudEmail" placeholder="name@mail.com" style="direction:ltr;text-align:right">
-       <button class="btn btn-primary" style="margin-top:12px" onclick="cloudLogin()">שלח לי קישור כניסה</button>
-       <div style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.7">יישלח אליך מייל עם קישור. פותחים אותו <b>מאותו מכשיר</b> — וזהו, מחוברים. אין סיסמה לזכור.</div>`;
+       <div class="lbl-s">סיסמה</div>
+       <input type="password" id="cloudPass" placeholder="לפחות 6 תווים" style="direction:ltr;text-align:right">
+       <button class="btn btn-primary" style="margin-top:12px" onclick="cloudLogin()">כניסה / הרשמה</button>
+       <div style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.7">בפעם הראשונה — בחרו סיסמה חדשה והיא תישמר. בפעמים הבאות — אותה סיסמה. <b>אותו אימייל וסיסמה</b> בכל המכשירים שלכם.</div>`;
   document.getElementById("sheet").innerHTML=
     `<div class="sheet-top"><div style="font-weight:600;font-size:16px">ענן וסנכרון</div><button class="x" onclick="closeSheet()">✕</button></div><div class="d-pad">${inner}</div>`;
   document.getElementById("sheetBg").classList.add("open");
@@ -1271,10 +1279,25 @@ function openCloud(){
 window.openCloud=openCloud;
 window.cloudSync=cloudSync;
 window.cloudLogin=async()=>{
-  const em=(document.getElementById("cloudEmail").value||"").trim();
+  const em=(document.getElementById("cloudEmail").value||"").trim().toLowerCase();
+  const pw=document.getElementById("cloudPass").value||"";
   if(!em||em.indexOf("@")<0){toast("צריך אימייל תקין");return;}
-  try{ await sbSendLink(em); toast("נשלח מייל — פתחו את הקישור"); closeSheet(); }
-  catch(e){ toast(String(e.message||e).slice(0,80)); }
+  if(pw.length<6){toast("סיסמה — לפחות 6 תווים");return;}
+  toast("מתחבר...");
+  try{
+    try{ await sbSignIn(em,pw); }
+    catch(e1){
+      const m=String(e1.message||"");
+      if(/invalid login credentials/i.test(m)){ await sbSignUp(em,pw); }
+      else throw e1;
+    }
+    await sbFetchUser();
+    closeSheet(); syncState="ok"; paintSync();
+    await cloudSync();
+  }catch(e){
+    const m=String(e.message||e);
+    toast(/invalid login credentials/i.test(m)?"סיסמה שגויה":m.slice(0,80));
+  }
 };
 window.cloudLogout=()=>{ sbSave(null); syncState="off"; paintSync(); closeSheet(); toast("נותקת מהענן"); };
 
