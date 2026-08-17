@@ -288,7 +288,9 @@ const CUSTOMER_ORIGIN = [
 const ORIGIN = Object.fromEntries(CUSTOMER_ORIGIN.map(o=>[o.id,o]));
 function custOrigin(c){return ORIGIN[c.origin]||ORIGIN.existing;}
 
-let CUSTOMERS=[]; try{const rc=localStorage.getItem("customers_v1"); CUSTOMERS = rc?JSON.parse(rc):seedCustomers();}catch(e){CUSTOMERS=seedCustomers();}
+let CUSTOMERS=[], CUSTOMERS_IS_SEED=false;
+try{const rc=localStorage.getItem("customers_v1"); if(rc){CUSTOMERS=JSON.parse(rc);}else{CUSTOMERS=seedCustomers();CUSTOMERS_IS_SEED=true;}}
+catch(e){CUSTOMERS=seedCustomers();CUSTOMERS_IS_SEED=true;}
 function saveCustomers(){try{localStorage.setItem("customers_v1",JSON.stringify(CUSTOMERS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 function getCustomer(id){return CUSTOMERS.find(c=>c.id===id);}
 function cuid(){return "c"+Math.random().toString(36).slice(2,9);}
@@ -325,7 +327,9 @@ function defaultTemplates(){return [
   {id:"t5", name:"זימון תור", body:"היי {name} 🙂 נפתחו תורים חדשים להתאמה/חידוש. מתי נוח לך שנקבע?"},
   {id:"t6", name:"חברה מביאה חברה", body:"{name}, אם תפני אליי חברה — שתיכן מקבלות הטבה 🎁 מכירה מישהי שתשמח?"},
 ];}
-let TEMPLATES=[]; try{const rt=localStorage.getItem("templates_v1"); TEMPLATES = rt?JSON.parse(rt):defaultTemplates();}catch(e){TEMPLATES=defaultTemplates();}
+let TEMPLATES=[], TEMPLATES_IS_SEED=false;
+try{const rt=localStorage.getItem("templates_v1"); if(rt){TEMPLATES=JSON.parse(rt);}else{TEMPLATES=defaultTemplates();TEMPLATES_IS_SEED=true;}}
+catch(e){TEMPLATES=defaultTemplates();TEMPLATES_IS_SEED=true;}
 function saveTemplates(){try{localStorage.setItem("templates_v1",JSON.stringify(TEMPLATES));}catch(e){}if(typeof queueSync==="function")queueSync();}
 
 /* blasts (mailing runs) */
@@ -373,8 +377,9 @@ function seed(){
   ];
 }
 
-let LEADS=[];
-try{const raw=localStorage.getItem("leads_v1");LEADS=raw?JSON.parse(raw):seed();}catch(e){LEADS=seed();}
+let LEADS=[], LEADS_IS_SEED=false;
+try{const raw=localStorage.getItem("leads_v1"); if(raw){LEADS=JSON.parse(raw);}else{LEADS=seed();LEADS_IS_SEED=true;}}
+catch(e){LEADS=seed();LEADS_IS_SEED=true;}
 function save(){try{localStorage.setItem("leads_v1",JSON.stringify(LEADS));}catch(e){}if(typeof queueSync==="function")queueSync();}
 function getLead(id){return LEADS.find(l=>l.id===id);}
 
@@ -1177,12 +1182,14 @@ async function sbRest(path,opts,retried){
 /* table <-> local-object mappers */
 const SYNC_TABLES=[
   {key:"leads", table:"leads", get:()=>LEADS, set:v=>{LEADS=v;save();},
+    isSeed:()=>LEADS_IS_SEED, clearSeed:()=>{LEADS_IS_SEED=false;},
     to:l=>({id:l.id,name:l.name||"",phone:l.phone||"",email:l.email||"",status:l.status||"new",
       campaign:l.campaign||"",source:l.source||"",product:l.product||"",
       created_at:l.createdAt||todayISO(),reminder_at:l.reminderAt||null,notes:l.notes||[]}),
     from:r=>({id:r.id,name:r.name,phone:r.phone,email:r.email||"",status:r.status,campaign:r.campaign||"",
       source:r.source||"",product:r.product||"",createdAt:r.created_at,reminderAt:r.reminder_at||"",notes:r.notes||[]})},
   {key:"customers", table:"customers", get:()=>CUSTOMERS, set:v=>{CUSTOMERS=v;saveCustomers();},
+    isSeed:()=>CUSTOMERS_IS_SEED, clearSeed:()=>{CUSTOMERS_IS_SEED=false;},
     to:c=>({id:c.id,name:c.name||"",phone_raw:c.phoneRaw||"",phone_e164:c.phoneE164||"",
       phone_valid:!!c.phoneValid,phone_mobile:!!c.phoneMobile,city:c.city||"",region:c.region||"לא ידוע",
       consent_status:c.consentStatus||"unknown",status:c.status||"new",origin:c.origin||"existing",
@@ -1196,6 +1203,7 @@ const SYNC_TABLES=[
       optOut:!!r.opt_out,optOutAt:r.opt_out_at||"",product:r.product||"",tags:r.tags||[],
       createdAt:r.created_at,lastContactAt:r.last_contact_at||"",lastMailedAt:r.last_mailed_at||"",notes:r.notes||[]})},
   {key:"templates", table:"templates", get:()=>TEMPLATES, set:v=>{TEMPLATES=v;saveTemplates();},
+    isSeed:()=>TEMPLATES_IS_SEED, clearSeed:()=>{TEMPLATES_IS_SEED=false;},
     to:t=>({id:t.id,name:t.name||"",body:t.body||""}),
     from:r=>({id:r.id,name:r.name,body:r.body})},
   {key:"blasts", table:"blasts", get:()=>BLASTS, set:v=>{BLASTS=v;saveBlasts();},
@@ -1213,9 +1221,13 @@ async function cloudPull(){
   for(const t of SYNC_TABLES){
     const rows=await sbRest(t.table+"?select=*");
     const byId={};
-    t.get().forEach(x=>{byId[x.id]=x;});          // local first
+    // Skip merging in local data if it's still just the untouched demo seed (never
+    // saved for real on this device) — otherwise the seed records get treated as
+    // "local changes" and pushed to the cloud as phantom duplicates.
+    if(!(t.isSeed&&t.isSeed())){ t.get().forEach(x=>{byId[x.id]=x;}); } // local first
     (rows||[]).map(t.from).forEach(x=>{byId[x.id]=x;}); // cloud wins on conflict
     t.set(Object.values(byId));
+    if(t.clearSeed) t.clearSeed();
   }
   const st=await sbRest("app_settings?id=eq.1&select=*");
   if(st&&st[0]){
