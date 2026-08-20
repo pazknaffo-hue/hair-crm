@@ -424,6 +424,8 @@ function renderLeads(){
     <div class="stat"><div class="lbl">לידים חדשים</div><div class="val">${newCount}</div></div>
   </div>`;
 
+  html+=`<button class="btn btn-primary" onclick="openLeadImport()">📥 ייבוא לידים מפייסבוק / אינסטגרם</button>`;
+
   if(today.length && filter==="all" && !q){
     html+=`<div class="section-t">⏰ לטיפול היום</div>`;
     html+=today.map(leadRow).join("");
@@ -912,6 +914,119 @@ window.impCommit=()=>{
     added++;});
   saveCustomers();renderAll();closeSheet();toast("יובאו "+added+" לקוחות"+(updated?" · עודכנו "+updated:""));
 };
+/* ---------- Meta (Lead Ads) lead import ----------
+   Meta's Leads Center / Ads Manager export is a CSV whose standard columns keep
+   English keys (full_name, phone_number, created_time, campaign_name, platform)
+   while custom form questions come through with the question text as the header,
+   often in Hebrew — so detection has to cover both. */
+let LIMP=null;
+function openLeadImport(){LIMP={step:1,rows:null,headers:null,map:{}};renderLeadImport();document.getElementById("sheetBg").classList.add("open");}
+window.openLeadImport=openLeadImport;
+function guessLeadMap(hs){
+  const m={};
+  hs.forEach((h,i)=>{const t=(h||"").toLowerCase().trim();
+    if(m.name==null&&/^full_name$|full name|שם מלא|^שם$|^name$/.test(t))m.name=i;
+    if(m.phone==null&&/phone_number|phone number|^phone$|טלפון|נייד|פלאפון|mobile/.test(t))m.phone=i;
+    if(m.email==null&&/^email$|e-mail|אימייל|מייל|דוא/.test(t))m.email=i;
+    if(m.created==null&&/created_time|created time|תאריך|date/.test(t))m.created=i;
+    if(m.campaign==null&&/campaign_name|campaign name|קמפיין/.test(t))m.campaign=i;
+    if(m.ad==null&&/^ad_name$|ad name|מודעה/.test(t))m.ad=i;
+    if(m.platform==null&&/^platform$|פלטפורמה/.test(t))m.platform=i;
+  });
+  // Fall back to looser matching, then to sniffing an actual phone value.
+  if(m.name==null)hs.forEach((h,i)=>{if(m.name==null&&/שם|name/i.test(h||""))m.name=i;});
+  if(m.phone==null&&LIMP&&LIMP.rows&&LIMP.rows[0])LIMP.rows[0].forEach((v,i)=>{if(m.phone==null&&normIL(v).valid)m.phone=i;});
+  return m;
+}
+window.limpFile=(input)=>{const f=input.files&&input.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const rows=parseCSV(r.result);if(!rows.length)throw 0;
+    LIMP.headers=rows[0].map(h=>(h||"").trim());
+    LIMP.rows=rows.slice(1).filter(rw=>rw.some(x=>x&&x.trim()));
+    LIMP.map=guessLeadMap(LIMP.headers);LIMP.step=2;renderLeadImport();
+  }catch(e){toast("קובץ לא תקין");}};
+  r.readAsText(f,"UTF-8");input.value="";};
+window.limpStep3=()=>{
+  ["name","phone","email","created","campaign","ad","platform"].forEach(k=>{
+    const el=document.getElementById("lmap_"+k); if(el) LIMP.map[k]=valOrNull(el.value);
+  });
+  LIMP.step=3;renderLeadImport();};
+function limpParse(){
+  const seenLead=new Set(LEADS.map(l=>normIL(l.phone).e164).filter(Boolean));
+  const custByPhone=new Set(CUSTOMERS.map(c=>c.phoneE164).filter(Boolean));
+  const fileSeen=new Set();
+  let total=0,toImport=0,dupes=0,invalid=0,known=0;const out=[];
+  const cell=(row,k)=>((LIMP.map[k]!=null?row[LIMP.map[k]]:"")||"").trim();
+  LIMP.rows.forEach(row=>{total++;
+    const name=cell(row,"name"), phoneRaw=cell(row,"phone");
+    const n=normIL(phoneRaw);
+    const rec={name,phoneRaw,display:n.valid?n.display:"",e164:n.e164,valid:n.valid,
+      email:cell(row,"email"),
+      created:(cell(row,"created").slice(0,10).match(/^\d{4}-\d{2}-\d{2}$/)||[""])[0],
+      campaign:cell(row,"campaign")||cell(row,"ad"),
+      // Meta exports the platform as "ig"/"fb", not the full product name.
+      platform:/^\s*ig\s*$|insta/i.test(cell(row,"platform"))?"instagram":"facebook",
+      alreadyCustomer:n.valid&&custByPhone.has(n.e164)};
+    if(!n.valid){invalid++;out.push({...rec,dupe:false});return;}
+    if(seenLead.has(n.e164)||fileSeen.has(n.e164)){dupes++;out.push({...rec,dupe:true});return;}
+    fileSeen.add(n.e164);toImport++;if(rec.alreadyCustomer)known++;out.push({...rec,dupe:false});
+  });
+  return {counts:{total,toImport,dupes,invalid,known},out};
+}
+window.limpCommit=()=>{
+  const {out}=limpParse();let added=0;
+  out.forEach(rec=>{
+    if(!rec.valid||rec.dupe)return;
+    LEADS.push({id:uid(),name:rec.name||rec.display,phone:rec.phoneRaw,email:rec.email||"",
+      status:"new",campaign:rec.campaign||"פייסבוק/אינסטגרם",source:rec.platform,product:"",
+      createdAt:rec.created||todayISO(),reminderAt:"",
+      notes:[{d:todayISO(),t:"יובא מ-Meta"+(rec.alreadyCustomer?" · כבר קיים כלקוח":"")}]});
+    added++;});
+  save();renderAll();closeSheet();
+  toast(added?("יובאו "+added+" לידים"):"לא נמצאו לידים חדשים");
+};
+function renderLeadImport(){
+  let inner="";
+  if(LIMP.step===1){
+    inner=`<div style="font-size:14px;line-height:1.8">מייבא את הלידים שכבר קיבלת בפייסבוק/אינסטגרם.<br><br>
+      <b>איך מורידים מ-Meta:</b><br>
+      1. פותחים <b>Meta Business Suite</b> → בתפריט הצדדי <b>"כל הכלים"</b> → <b>"מרכז הלידים"</b> (Leads Center)<br>
+      2. בוחרים את הטופס ולוחצים <b>"הורדה"</b> / <b>Download</b><br>
+      3. בוחרים <b>CSV</b> ומורידים<br>
+      4. חוזרים לכאן ובוחרים את הקובץ</div>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('leadCsvFile').click()">בחר קובץ מ-Meta</button>
+      <input type="file" id="leadCsvFile" accept=".csv,text/csv" style="display:none" onchange="limpFile(this)">
+      <div style="font-size:12px;color:var(--faint);margin-top:10px">הקובץ נשאר במכשיר שלך — לא נשלח לשום מקום חוץ מהענן הפרטי שלך.</div>`;
+  } else if(LIMP.step===2){
+    const opt=(sel)=>`<option value="">— ללא —</option>`+LIMP.headers.map((h,i)=>`<option value="${i}" ${sel===i?"selected":""}>${esc(h||("עמודה "+(i+1)))}</option>`).join("");
+    const fld=(k,label)=>`<div style="font-size:13px;margin:10px 0 4px">${label}</div><select id="lmap_${k}" style="${SEL}">${opt(LIMP.map[k])}</select>`;
+    inner=`<div class="lbl-s">התאמת עמודות (זוהו אוטומטית — תקן אם צריך)</div>
+      ${fld("name","שם")}${fld("phone","טלפון")}${fld("email","אימייל")}
+      ${fld("created","תאריך הליד")}${fld("campaign","קמפיין")}${fld("platform","פלטפורמה")}
+      <div class="row-g" style="margin-top:18px"><button class="btn btn-primary" onclick="limpStep3()">המשך</button></div>`;
+  } else {
+    const p=limpParse(), c=p.counts;
+    const rows=p.out.filter(r=>r.valid&&!r.dupe).slice(0,6).map(r=>
+      `<div style="font-size:13px;border-bottom:.5px solid var(--line);padding:6px 0"><b>${esc(r.name||"—")}</b> · <span style="direction:ltr">${esc(r.display)}</span>${r.alreadyCustomer?' · <span style="color:var(--won)">כבר לקוח</span>':""}</div>`).join("");
+    inner=`<div class="stats" style="margin-bottom:12px">
+        <div class="stat"><div class="lbl">לידים חדשים לייבוא</div><div class="val" style="color:var(--won)">${c.toImport}</div></div>
+        <div class="stat"><div class="lbl">בקובץ</div><div class="val">${c.total}</div></div>
+      </div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.8">
+        ${c.dupes?`⏭️ ${c.dupes} כבר קיימים אצלך כליד — ידולגו<br>`:""}
+        ${c.invalid?`⚠️ ${c.invalid} עם טלפון לא תקין — ידולגו<br>`:""}
+        ${c.known?`👤 ${c.known} מתוכם כבר רשומים אצלך כלקוחות<br>`:""}
+      </div>
+      ${rows?`<div class="lbl-s">דוגמה</div>${rows}`:""}
+      <div class="row-g" style="margin-top:18px${c.toImport?"":";opacity:.45;pointer-events:none"}">
+        <button class="btn btn-primary" onclick="limpCommit()">ייבא ${c.toImport} לידים</button>
+      </div>`;
+  }
+  document.getElementById("sheet").innerHTML=`
+    <div class="sheet-top"><div style="font-weight:600;font-size:16px">ייבוא לידים מ-Meta</div>
+      <button class="x" onclick="closeSheet()">✕</button></div>
+    <div class="d-pad">${inner}</div>`;
+}
+
 function renderImport(){
   let inner="";
   if(IMP.step===1){
