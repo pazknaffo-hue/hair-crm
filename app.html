@@ -1564,6 +1564,11 @@ if(loggedIn()){ syncState="ok"; paintSync(); cloudSync(true); } else { paintSync
 // so a phone that has been sitting in the background isn't showing stale records.
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) cloudSync(true); });
 
+// Two people share this data, so a phone left open on the counter must not sit on a
+// stale list. Refresh periodically, but only while actually on screen — syncing a
+// hidden tab just burns mobile data.
+setInterval(()=>{ if(!document.hidden && loggedIn()) cloudSync(true); }, 5*60*1000);
+
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{});}
 </script>
 </body>
