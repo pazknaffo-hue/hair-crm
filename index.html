@@ -1328,12 +1328,30 @@ async function cloudPull(tombs){
     saveSettings();
   }
 }
+/* Snapshot of what this device last had in sync with the cloud, so we can push
+   only genuine local edits. Pushing every row on every sync meant a device holding
+   a stale copy silently overwrote everyone else's changes — a status set on one
+   phone would disappear as soon as another phone synced. */
+function syncedSnap(key){ try{ return JSON.parse(localStorage.getItem("synced_"+key)||"{}"); }catch(e){ return {}; } }
+function saveSyncedSnap(key,map){ try{ localStorage.setItem("synced_"+key,JSON.stringify(map)); }catch(e){} }
+function snapshotSynced(){
+  for(const t of SYNC_TABLES){
+    const map={};
+    t.get().forEach(x=>{ map[x.id]=JSON.stringify(t.to(x)); });
+    saveSyncedSnap(t.key,map);
+  }
+}
+
 async function cloudPush(){
   for(const t of SYNC_TABLES){
-    const rows=t.get().map(t.to);
-    for(let i=0;i<rows.length;i+=200){
+    const prev=syncedSnap(t.key), changed=[];
+    t.get().forEach(x=>{
+      const row=t.to(x);
+      if(prev[x.id]!==JSON.stringify(row)) changed.push(row);   // new or edited here
+    });
+    for(let i=0;i<changed.length;i+=200){
       await sbRest(t.table,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
-        body:JSON.stringify(rows.slice(i,i+200))});
+        body:JSON.stringify(changed.slice(i,i+200))});
     }
   }
   await sbRest("app_settings",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
@@ -1360,6 +1378,7 @@ async function cloudSync(silent){
     await cloudPush();
     await cloudPull(tombs);
     applyTombstones(tombs);   // again, in case another device pushed one mid-sync
+    snapshotSynced();         // only on full success — a failed sync must stay "dirty"
     syncState="ok"; clearTimeout(retryTimer); renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
     syncState="error";
