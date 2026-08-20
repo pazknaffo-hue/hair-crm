@@ -1217,6 +1217,30 @@ const SYNC_TABLES=[
       sentToday:r.sent_today||0,sentDate:r.sent_date||"",capBonus:r.cap_bonus||0})},
 ];
 
+/* Deletion propagation ("tombstones").
+   Without this, deleting a record on one phone only removes it locally — the other
+   phones still hold it and push it straight back on their next sync. Every delete
+   also records a row in `deletions`, and every sync purges those ids everywhere. */
+async function fetchTombstones(){
+  try{
+    const rows=await sbRest("deletions?select=table_name,record_id");
+    const map={};
+    (rows||[]).forEach(r=>{ (map[r.table_name]=map[r.table_name]||new Set()).add(r.record_id); });
+    return map;
+  }catch(e){ return {}; }
+}
+function applyTombstones(map){
+  let removed=0;
+  for(const t of SYNC_TABLES){
+    const dead=map[t.table];
+    if(!dead||!dead.size) continue;
+    const before=t.get();
+    const after=before.filter(x=>!dead.has(x.id));
+    if(after.length!==before.length){ removed+=before.length-after.length; t.set(after); }
+  }
+  return removed;
+}
+
 async function cloudPull(){
   for(const t of SYNC_TABLES){
     const rows=await sbRest(t.table+"?select=*");
@@ -1255,6 +1279,10 @@ async function cloudPush(){
 }
 async function cloudDelete(table,id){
   if(!loggedIn()) return;
+  // Record the tombstone first, so the other phones learn about the delete even if
+  // the row removal below fails partway.
+  try{ await sbRest("deletions",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
+    body:JSON.stringify([{table_name:table,record_id:id}])}); }catch(e){}
   try{ await sbRest(table+"?id=eq."+encodeURIComponent(id),{method:"DELETE"}); }catch(e){}
 }
 async function cloudSync(silent){
@@ -1262,8 +1290,11 @@ async function cloudSync(silent){
   syncBusy=true; syncState="syncing"; paintSync();
   try{
     if(!userEmail()) await sbFetchUser();
+    const tombs=await fetchTombstones();
+    applyTombstones(tombs);   // drop records deleted elsewhere BEFORE pushing, or we'd resurrect them
     await cloudPush();
     await cloudPull();
+    applyTombstones(tombs);   // again, in case another device pushed one mid-sync
     syncState="ok"; renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
     syncState="error"; if(!silent) toast(String(e.message||e).slice(0,80));
