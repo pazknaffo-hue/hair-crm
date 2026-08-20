@@ -1,4 +1,4 @@
-const CACHE = "leads-crm-v3";
+const CACHE = "leads-crm-v4";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {
@@ -15,14 +15,24 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
+
+  // Never intercept cross-origin traffic. The Supabase API lives on another origin,
+  // and caching it here meant a single expired-token 401 got stored and then replayed
+  // for every later request to the same URL — the sync could never recover.
+  let url;
+  try { url = new URL(req.url); } catch (_e) { return; }
+  if (url.origin !== self.location.origin) return;
+
   const isDoc = req.mode === "navigate" ||
     (req.headers.get("accept") || "").includes("text/html");
 
   if (isDoc) {
     e.respondWith(
       fetch(req, { cache: "no-store" }).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
         return res;
       }).catch(() => caches.match(req).then(c => c || caches.match("./index.html")))
     );
@@ -32,8 +42,11 @@ self.addEventListener("fetch", e => {
   e.respondWith(
     caches.match(req).then(cached =>
       cached || fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        // Only ever store successful responses — caching an error makes it permanent.
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
         return res;
       }).catch(() => cached)
     )
