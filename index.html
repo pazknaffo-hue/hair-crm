@@ -1153,10 +1153,33 @@ async function sbSignUp(email,password){
   if(j.access_token){ sbSave(j); return j; }
   return sbSignIn(email,password);
 }
+/* Access tokens last an hour, so a phone reopened the next morning always arrives
+   with an expired one. Refresh proactively instead of waiting for a request to fail.
+   Refresh tokens are single-use, so concurrent callers must share one in-flight
+   refresh or the losers invalidate each other and the session dies. */
+let refreshInFlight=null;
 async function sbRefresh(){
+  if(refreshInFlight) return refreshInFlight;
   if(!SB_SESSION||!SB_SESSION.refresh_token) return false;
-  try{const j=await sbAuth("token?grant_type=refresh_token",{refresh_token:SB_SESSION.refresh_token});sbSave(j);return true;}
-  catch(e){sbSave(null);return false;}
+  refreshInFlight=(async()=>{
+    try{
+      const j=await sbAuth("token?grant_type=refresh_token",{refresh_token:SB_SESSION.refresh_token});
+      sbSave(j); return true;
+    }catch(e){
+      // Don't sign the user out on a network blip — losing the login mid-workday is
+      // far worse than a failed sync. Only a rejected token clears the session.
+      if(/invalid|expired|not found|400|401/i.test(String(e.message||e))) sbSave(null);
+      return false;
+    }
+  })();
+  try{ return await refreshInFlight; } finally { refreshInFlight=null; }
+}
+function tokenExpiringSoon(){
+  if(!SB_SESSION||!SB_SESSION.access_token) return false;
+  try{
+    const p=JSON.parse(atob(SB_SESSION.access_token.split(".")[1]));
+    return (p.exp-Math.floor(Date.now()/1000))<120;   // renew 2 minutes before expiry
+  }catch(e){ return false; }
 }
 async function sbFetchUser(){
   try{
@@ -1322,6 +1345,7 @@ async function cloudSync(silent){
   if(!loggedIn()||syncBusy) return;
   syncBusy=true; syncState="syncing"; paintSync();
   try{
+    if(tokenExpiringSoon()) await sbRefresh();   // renew before the first request, not after it fails
     if(!userEmail()) await sbFetchUser();
     purgeDemoData();          // one-time: strip this device's leftover sample records
     const tombs=await fetchTombstones();
@@ -1329,13 +1353,18 @@ async function cloudSync(silent){
     await cloudPush();
     await cloudPull();
     applyTombstones(tombs);   // again, in case another device pushed one mid-sync
-    syncState="ok"; renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
+    syncState="ok"; clearTimeout(retryTimer); renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
-    syncState="error"; if(!silent) toast(String(e.message||e).slice(0,80));
+    syncState="error";
+    clearTimeout(retryTimer); retryTimer=setTimeout(()=>cloudSync(true),30000); // self-heal
+    const raw=String(e.message||e);
+    if(!silent) toast(/JWT|401|403/i.test(raw) ? "צריך להתחבר מחדש — הקישו על ☁️"
+                    : /Failed to fetch|NetworkError/i.test(raw) ? "אין חיבור לאינטרנט — יסונכרן אוטומטית"
+                    : "הסנכרון נכשל, ננסה שוב בקרוב");
   }
   syncBusy=false; paintSync();
 }
-let pushTimer=null;
+let pushTimer=null, retryTimer=null;
 function queueSync(){ if(!loggedIn())return; clearTimeout(pushTimer); pushTimer=setTimeout(()=>cloudSync(true),2500); }
 function paintSync(){
   const b=document.getElementById("cloudBtn"); if(!b)return;
