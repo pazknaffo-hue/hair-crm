@@ -601,7 +601,6 @@ window.sendCatalogToLead=(id)=>{
   l.notes=l.notes||[]; l.notes.push({d:todayISO(),t:"נשלח קטלוג מוצרים"});
   if(l.status==="new") l.status="contact";
   save(); renderAll();
-if(loggedIn()){syncState="ok";paintSync();cloudSync(true);}else{paintSync();}
   if(document.getElementById("sheetBg").classList.contains("open")) openLead(id);
   toast("הקטלוג נפתח בוואטסאפ");
 };
@@ -1222,13 +1221,47 @@ const SYNC_TABLES=[
    phones still hold it and push it straight back on their next sync. Every delete
    also records a row in `deletions`, and every sync purges those ids everywhere. */
 async function fetchTombstones(){
-  try{
-    const rows=await sbRest("deletions?select=table_name,record_id");
-    const map={};
-    (rows||[]).forEach(r=>{ (map[r.table_name]=map[r.table_name]||new Set()).add(r.record_id); });
-    return map;
-  }catch(e){ return {}; }
+  // Deliberately does NOT swallow errors: if we can't read the tombstones we must
+  // abort the whole sync, because pushing without them re-uploads deleted records.
+  const rows=await sbRest("deletions?select=table_name,record_id");
+  const map={};
+  (rows||[]).forEach(r=>{ (map[r.table_name]=map[r.table_name]||new Set()).add(r.record_id); });
+  return map;
 }
+/* One-time removal of the original demo/sample records.
+   These were generated with a fresh random id on every device, so the same fake
+   person exists under a different id on each phone — cloud tombstones (which key
+   off id) can't catch them. Match on name+phone instead, which is exact enough
+   that a real contact can't collide. */
+const DEMO_LEAD_KEYS=["מיכל לוי|0521234567","אור נגר|0537654321","שירן דוד|0545551234",
+  "יעל ברוך|0526667788","נועה פרץ|0509998877","דנה כהן|0524443322","ליאת מור|0533332211",
+  "רותם שרון|0526665544","טל אבני|0501112233","הדר לביא|0547778899"];
+const DEMO_CUSTOMER_KEYS=["אורנה שלו|0521110001","מירי דהן|0522220002","סיגל אבוטבול|0523330003",
+  "רונית לוי|0524440004","יפית כהן|0525550005","שרה מזרחי|0526660006","לימור פרץ|0527770007",
+  "גלית ביטון|0528880008","נעמה אזולאי|0529990009","הדס גבאי|0533330010"].concat(DEMO_LEAD_KEYS);
+function purgeDemoData(){
+  // localStorage can throw outright (iOS private browsing), so never let it kill startup.
+  try{ if(localStorage.getItem("demo_purged_v1")) return 0; }catch(e){}
+  const strip=s=>(s||"").replace(/[^0-9]/g,"");
+  const custDead=new Set(DEMO_CUSTOMER_KEYS.map(k=>k.split("|")[0]+"|"+strip(k.split("|")[1])));
+  const leadDead=new Set(DEMO_LEAD_KEYS.map(k=>k.split("|")[0]+"|"+strip(k.split("|")[1])));
+  const gone=[];
+  for(let i=CUSTOMERS.length-1;i>=0;i--){
+    const c=CUSTOMERS[i];
+    if(custDead.has((c.name||"")+"|"+strip(c.phoneRaw))){ gone.push(["customers",c.id]); CUSTOMERS.splice(i,1); }
+  }
+  for(let i=LEADS.length-1;i>=0;i--){
+    const l=LEADS[i];
+    if(leadDead.has((l.name||"")+"|"+strip(l.phone))){ gone.push(["leads",l.id]); LEADS.splice(i,1); }
+  }
+  try{localStorage.setItem("customers_v1",JSON.stringify(CUSTOMERS));}catch(e){}
+  try{localStorage.setItem("leads_v1",JSON.stringify(LEADS));}catch(e){}
+  try{localStorage.setItem("demo_purged_v1","1");}catch(e){}
+  // Also clear this device's cloud copies (they carry this device's ids).
+  if(typeof loggedIn==="function"&&loggedIn()) gone.forEach(([t,id])=>{cloudDelete(t,id);});
+  return gone.length;
+}
+
 function applyTombstones(map){
   let removed=0;
   for(const t of SYNC_TABLES){
@@ -1290,6 +1323,7 @@ async function cloudSync(silent){
   syncBusy=true; syncState="syncing"; paintSync();
   try{
     if(!userEmail()) await sbFetchUser();
+    purgeDemoData();          // one-time: strip this device's leftover sample records
     const tombs=await fetchTombstones();
     applyTombstones(tombs);   // drop records deleted elsewhere BEFORE pushing, or we'd resurrect them
     await cloudPush();
@@ -1466,7 +1500,14 @@ function renderAll(){renderLeads();renderPipeline();renderCustomers();renderMail
 let toastT;
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
+/* ---------- startup ---------- */
+try{ purgeDemoData(); }catch(e){}   // never let cleanup block the app from rendering
 renderAll();
+if(loggedIn()){ syncState="ok"; paintSync(); cloudSync(true); } else { paintSync(); }
+
+// Pull fresh data whenever the app is reopened or brought back to the foreground,
+// so a phone that has been sitting in the background isn't showing stale records.
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) cloudSync(true); });
 
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{});}
 </script>
