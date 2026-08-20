@@ -1297,15 +1297,22 @@ function applyTombstones(map){
   return removed;
 }
 
-async function cloudPull(){
+async function cloudPull(tombs){
   for(const t of SYNC_TABLES){
     const rows=await sbRest(t.table+"?select=*");
+    const dead=(tombs&&tombs[t.table])||null;
     const byId={};
     // Skip merging in local data if it's still just the untouched demo seed (never
     // saved for real on this device) — otherwise the seed records get treated as
     // "local changes" and pushed to the cloud as phantom duplicates.
     if(!(t.isSeed&&t.isSeed())){ t.get().forEach(x=>{byId[x.id]=x;}); } // local first
-    (rows||[]).map(t.from).forEach(x=>{byId[x.id]=x;}); // cloud wins on conflict
+    (rows||[]).forEach(r=>{
+      const x=t.from(r);
+      // A tombstoned row still in the cloud means a delete raced an in-flight push.
+      // Drop it here and re-issue the delete so the server converges too.
+      if(dead&&dead.has(x.id)){ cloudDelete(t.table,x.id); return; }
+      byId[x.id]=x;                                     // cloud wins on conflict
+    });
     t.set(Object.values(byId));
     if(t.clearSeed) t.clearSeed();
   }
@@ -1351,7 +1358,7 @@ async function cloudSync(silent){
     const tombs=await fetchTombstones();
     applyTombstones(tombs);   // drop records deleted elsewhere BEFORE pushing, or we'd resurrect them
     await cloudPush();
-    await cloudPull();
+    await cloudPull(tombs);
     applyTombstones(tombs);   // again, in case another device pushed one mid-sync
     syncState="ok"; clearTimeout(retryTimer); renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
