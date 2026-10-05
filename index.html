@@ -247,6 +247,89 @@ const CITY_REGION = {
 function normCity(s){return (s||"").replace(/[‎‏]/g,"").replace(/["'`]/g,"").replace(/\s+/g," ").trim();}
 function cityToRegion(city){const c=normCity(city);if(!c)return "לא ידוע";if(CITY_REGION[c])return CITY_REGION[c];
   for(const k in CITY_REGION){if(c.indexOf(k)===0||k.indexOf(c)===0)return CITY_REGION[k];}return "לא ידוע";}
+
+/* ---------- Place extraction from a contact's NAME ----------
+   The imported contacts keep the city inside the name ("דני ספר באר שבע"), not in a
+   separate column, so the CSV import left almost everyone as "לא ידוע". This reads it
+   back out. Region assignments follow the CITY_REGION map above, and the Krayot towns
+   go to the "קריות" region the owner created. */
+const PLACE_REGIONS={
+ "קריות":["קרית אתא","קרית ביאליק","קרית מוצקין","קרית ים","קרית חיים"],
+ "חיפה":["חיפה","נשר","טירת כרמל","חדרה","אור עקיבא","זכרון יעקב","בנימינה","קרית טבעון","טבעון","חריש","דלית אל כרמל","קרית שמואל","עספיא","עוספיא","אום אל פחם","נווה שאנן"],
+ "צפון":["עפולה","טבריה","נהריה","כרמיאל","עכו","נצרת","נוף הגליל","עראבה","ירכא","יקנעם","מגדל העמק","ראש פינה","שפרעם","בית שאן","קרית שמונה","צפת","חצור","מגדל שמס","כפר מנדא","כפר כבא","אעבלין","גדיידה מכר","זרזיר","אכסאל","כפר תבור","רמת הגולן","מעלות","קצרין","שבי ציון","רמת ישי","סחנין","טמרה","מגאר","ריינה","כפר כנא","יפיע","דיר אל אסד"],
+ "תל אביב":["תל אביב","יפו","רמת גן","גבעתיים","בני ברק","חולון","בת ים","הרצליה","רמת השרון","אור יהודה","קרית אונו","יהוד","גבעת שמואל","כיכר המדינה"],
+ "שרון":["נתניה","כפר סבא","רעננה","הוד השרון","קדימה","פרדס חנה","טירה","טייבה","קלנסווה","כפר יונה","אבן יהודה","תל מונד","קיסריה","שער חפר","באקה אל גרבייה"],
+ "מרכז":["פתח תקווה","ראשון לציון","רחובות","נס ציונה","לוד","רמלה","מודיעין","יבנה","גדרה","באר יעקב","שוהם","אלעד","ראש העין","גני תקווה","בית דגן","קרית עקרון","כפר קאסם","ג׳לג׳וליה"],
+ "ירושלים":["ירושלים","בית שמש","מבשרת ציון","מעלה אדומים","ביתר עילית"],
+ "דרום":["באר שבע","אשדוד","אשקלון","קרית גת","קרית מלאכי","נתיבות","שדרות","אופקים","דימונה","ערד","אילת","רהט","עומר","להבים"],
+ "יהודה ושומרון":["אריאל","קרני שומרון","אפרת","קרית ארבע","מודיעין עילית","שומרון"]
+};
+/* typos / spellings actually seen in the data -> canonical city */
+const PLACE_ALIASES={
+ "ירושליים":"ירושלים","ירושלין":"ירושלים","תל אביבב":"תל אביב","קרת אתא":"קרית אתא","ק אתא":"קרית אתא","ק. אתא":"קרית אתא",
+ "ק. ים":"קרית ים","ק ים":"קרית ים","יקענם":"יקנעם","טירת כרמחל":"טירת כרמל","כרמחל":"טירת כרמל","טירת הכרמל":"טירת כרמל",
+ "נצרת עלית":"נוף הגליל","נצרת עילית":"נוף הגליל","ראשוון":"ראשון לציון","גד אל מכר":"גדיידה מכר","ג׳דיידה מכר":"גדיידה מכר",
+ "גדיידה מאכר":"גדיידה מכר","עוספיא עספייא":"עספיא","קרני השומרון":"קרני שומרון",
+ "ביאליק":"קרית ביאליק","בילאיק":"קרית ביאליק","באיליק":"קרית ביאליק","קרית באיליק":"קרית ביאליק","מוצקין":"קרית מוצקין"
+};
+const PLACE_MAP=(()=>{
+  const m={};
+  for(const r in PLACE_REGIONS) PLACE_REGIONS[r].forEach(c=>{m[c]={city:c,region:r};});
+  for(const a in PLACE_ALIASES){ const c=PLACE_ALIASES[a];
+    const base=m[c]; m[a]={city:c,region:base?base.region:"קריות"}; }
+  return m;
+})();
+const PLACE_KEYS=Object.keys(PLACE_MAP).sort((a,b)=>b.length-a.length);   // longest first
+const PLACE_REGION_WORDS=["קריות","מרכז","דרום","צפון"];
+const HEB_LETTER=/[א-ת]/;
+function inferPlaceFromName(raw){
+  const t=(raw||"").replace(/[‎‏‪-‮]/g,"").trim().replace(/קריית/g,"קרית").replace(/["']/g,"");
+  if(!t) return null;
+  // "שלומי" is also a first name, so it only counts as a town right after ספר/ספרית.
+  if(/ספר(?:ית)?\s+שלומי(?![א-ת])/.test(t)) return {city:"שלומי",region:"צפון"};
+  const word=(s,i,len)=>!(i>0&&HEB_LETTER.test(s[i-1])) && !(i+len<s.length&&HEB_LETTER.test(s[i+len]));
+  const used=[], hits=[];
+  for(const key of PLACE_KEYS){
+    let from=0;
+    for(;;){
+      const i=t.indexOf(key,from); if(i<0) break; from=i+1;
+      if(!word(t,i,key.length)) continue;
+      if(used.some(([a,b])=>!(i+key.length<=a||i>=b))) continue;
+      used.push([i,i+key.length]); hits.push([i,key]);
+    }
+  }
+  if(hits.length){
+    hits.sort((a,b)=>a[0]-b[0]);
+    const k=hits[hits.length-1][1];       // the city normally comes last: "אריאל ספר תל אביב"
+    return {city:PLACE_MAP[k].city,region:PLACE_MAP[k].region};
+  }
+  for(const w of PLACE_REGION_WORDS){      // a bare region word, e.g. "ספר מרכז"
+    const i=t.indexOf(w); if(i>=0&&word(t,i,w.length)) return {city:"",region:w};
+  }
+  return null;
+}
+
+/* One-time pass: fill city+region for contacts still marked "לא ידוע", from their name.
+   Never touches a contact that already has a region (manual choices always win).
+   Idempotent, so two phones running it produce identical values and cannot conflict. */
+function regionsFilled(){ try{ return !!localStorage.getItem("regions_from_names_v1"); }catch(e){ return false; } }
+function markRegionsFilled(){ try{ localStorage.setItem("regions_from_names_v1","1"); }catch(e){} }
+function applyRegionsFromNames(){
+  let changed=0; const usedRegions=new Set();
+  CUSTOMERS.forEach(c=>{
+    if(c.region && c.region!=="לא ידוע") return;
+    const p=inferPlaceFromName(c.name); if(!p||!p.region) return;
+    c.region=p.region; if(!c.city && p.city) c.city=p.city;
+    usedRegions.add(p.region); changed++;
+  });
+  // A region only shows up as a filter/mailing chip if it is in the list.
+  let listChanged=false;
+  usedRegions.forEach(r=>{ if(!REGIONS.includes(r)){ SETTINGS.regions=REGIONS=[...REGIONS,r]; listChanged=true; } });
+  if(listChanged) try{localStorage.setItem("settings_v1",JSON.stringify(SETTINGS));}catch(e){}
+  if(changed) try{localStorage.setItem("customers_v1",JSON.stringify(CUSTOMERS));}catch(e){}
+  return changed;
+}
+
 /* Israeli phone normalization -> {e164, valid, mobile, display} */
 function normIL(raw){
   let s=(raw||"").replace(/[‎‏\s\-().]/g,"");
@@ -895,8 +978,9 @@ function impParseRows(){
   IMP.rows.forEach(row=>{total++;
     const name=((IMP.map.name!=null?row[IMP.map.name]:"")||"").trim();
     const phoneRaw=((IMP.map.phone!=null?row[IMP.map.phone]:"")||"").trim();
-    const city=((IMP.map.city!=null?row[IMP.map.city]:"")||"").trim();
-    const n=normIL(phoneRaw);const region=cityToRegion(city);
+    let city=((IMP.map.city!=null?row[IMP.map.city]:"")||"").trim();
+    const n=normIL(phoneRaw);let region=cityToRegion(city);
+    if(!city){ const g=inferPlaceFromName(name); if(g){ city=g.city||""; if(g.region) region=g.region; } }   // city often lives in the name
     const rec={name,phoneRaw,display:n.valid?n.display:"",e164:n.e164,valid:n.valid,city:normCity(city),region};
     preview.push(rec);
     if(!n.valid){invalid++;return;}
@@ -1493,6 +1577,10 @@ async function cloudSync(silent){
     await cloudPush();
     await cloudPull(tombs);
     applyTombstones(tombs);   // again, in case another device pushed one mid-sync
+    // Run the name→region fill only AFTER pulling, so it can never overwrite a region
+    // someone just set by hand on another phone (it only touches contacts still "לא ידוע").
+    if(!regionsFilled() && applyRegionsFromNames()>0){ markRegionsFilled(); await cloudPush(); }
+    else markRegionsFilled();
     snapshotSynced();         // only on full success — a failed sync must stay "dirty"
     syncState="ok"; clearTimeout(retryTimer); renderAll(); if(!silent) toast("סונכרן עם הענן ✓");
   }catch(e){
@@ -1672,6 +1760,9 @@ function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t
 
 /* ---------- startup ---------- */
 try{ purgeDemoData(); }catch(e){}   // never let cleanup block the app from rendering
+// Signed out (e.g. login expired): fill regions locally now. The changed rows are pushed
+// first thing after the next sign-in, since pushes always precede pulls.
+try{ if(!loggedIn() && !regionsFilled()){ applyRegionsFromNames(); markRegionsFilled(); } }catch(e){}
 renderAll();
 if(loggedIn()){ syncState="ok"; paintSync(); cloudSync(true); } else { paintSync(); }
 
